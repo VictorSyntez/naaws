@@ -2,10 +2,11 @@
 // Caches the app shell on install; serves from cache when offline.
 // Bump CACHE_VERSION whenever the HTML changes to force users to refresh.
 
-const CACHE_VERSION = 'naaws-v1';
+const CACHE_VERSION = 'naaws-v4';
 const APP_SHELL = [
   './',
   './index.html',
+  './cards.json',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
