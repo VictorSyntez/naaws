@@ -413,6 +413,41 @@ h1,h2,h3{font-family:var(--font-display);margin:0;font-weight:600;letter-spacing
   color:var(--muted);font-variant-numeric:tabular-nums;
   padding:3px 9px;border:1px solid var(--border);border-radius:100px;background:var(--surface);
 }
+
+/* ===================== Phase 3: Readiness dashboard ===================== */
+.dash-hero{
+  background:linear-gradient(135deg,var(--ink),#3d2418);color:var(--surface);
+  border-radius:var(--radius);padding:20px 22px;box-shadow:var(--shadow-lg);
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+}
+.dash-days{font-family:var(--font-display);font-weight:800;font-size:42px;line-height:1}
+.dash-days small{display:block;font-size:11px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;opacity:.7;margin-top:5px}
+.dash-hero-right{text-align:right;font-size:12px;opacity:.9;line-height:1.55}
+.dash-hero-right strong{font-family:var(--font-display);font-weight:700;font-size:15px;display:block}
+.dash-label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:22px 0 4px}
+.dash-sublabel{font-size:12px;color:var(--muted);margin-bottom:10px}
+.dash-row{display:flex;align-items:center;gap:10px;margin-top:9px;font-size:13px}
+.dash-row .sec-name{width:62px;flex-shrink:0;color:var(--ink-soft);font-weight:500;font-variant-numeric:tabular-nums}
+.dash-metric{width:92px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
+.dash-metric b{font-weight:700}
+.dash-metric small{color:var(--muted);font-weight:400;margin-left:4px;font-size:11px}
+.dash-metric.ready b{color:var(--ok)}
+.dash-metric.below b{color:var(--fail)}
+.dash-metric.light b{color:var(--warn)}
+.dash-metric.none{color:var(--muted);font-style:italic}
+.sec-fill.below{background:linear-gradient(90deg,#e0a48f,var(--fail))}
+.sec-fill.light{background:linear-gradient(90deg,var(--accent-soft),var(--warn))}
+.dash-lookup{display:flex;gap:10px}
+.dash-lookup .lk{flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:13px 10px;text-align:center}
+.dash-lookup .lk-num{font-family:var(--font-display);font-weight:700;font-size:23px;color:var(--ink);line-height:1}
+.dash-lookup .lk-lab{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:5px}
+.weak-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px solid var(--border)}
+.weak-item:last-child{border-bottom:0}
+.weak-clause{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--accent)}
+.weak-sec{font-size:11px;color:var(--muted);margin-top:2px}
+.weak-acc{font-variant-numeric:tabular-nums;color:var(--fail);font-weight:700;font-size:14px;white-space:nowrap}
+.dash-empty{color:var(--muted);font-size:14px;font-style:italic;padding:10px 0;line-height:1.5}
+.dash-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;box-shadow:var(--shadow)}
 </style>
 </head>
 <body>
@@ -624,6 +659,7 @@ function renderHome(){
       ${c.reviewedToday > 0 ? `Reviewed <strong>${c.reviewedToday}</strong> card${c.reviewedToday===1?'':'s'} today. ` : ''}
       Deck: <strong>${c.total}</strong> terms from NAAWS 4.0 Glossary. Tap the card to flip, then rate your recall.
     </div>
+    ${renderDashEntry()}
     ${renderQuizEntry()}
     ${renderNavEntry()}
     <button class="browse-link" onclick="renderLibrary()">Browse all cards <span class="arrow">→</span></button>
@@ -1599,6 +1635,176 @@ document.addEventListener('keydown', (e) => {
   if (!document.querySelector('.nav-tablist')) return;
   if (navSelection !== null && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); nextNav(); }
 });
+
+// ===================== READINESS DASHBOARD (Phase 3) =====================
+// A read-only home-screen view: "Am I ready to sit the MSE, and where am I weak?"
+// Reads ONLY data the app already persists (STATE.mcq, STATE.navdrill) plus the
+// loaded banks. It adds no tracking and never writes state. Any metric the stored
+// data can't support is shown as "not enough data yet", never fabricated.
+
+const READY_MIN_ATTEMPTS = 5;          // a section needs at least this many attempts before it can read "ready"
+const EXAM_WINDOW_START = [2026, 10, 9];  // Nov 9 2026 (month index 10)
+const EXAM_WINDOW_END   = [2026, 10, 15]; // Nov 15 2026
+
+function examCountdown(){
+  const now = new Date();
+  const start = new Date(EXAM_WINDOW_START[0], EXAM_WINDOW_START[1], EXAM_WINDOW_START[2]);
+  const end   = new Date(EXAM_WINDOW_END[0], EXAM_WINDOW_END[1], EXAM_WINDOW_END[2], 23, 59, 59);
+  if (now > end)   return { phase: 'after',  days: 0 };
+  if (now >= start) return { phase: 'during', days: 0 };
+  return { phase: 'before', days: Math.ceil((start - now) / DAY_MS) };
+}
+
+// Sort order: NAAWS S## by number, then GIS tags in manual order.
+function secRank(s){
+  const m = /^S(\d+)/.exec(s);
+  if (m) return [0, parseInt(m[1], 10)];
+  const gisOrder = ['GIS-DEF','GIS-1','GIS-2','GIS-3','GIS-4','GIS-5','GIS-6','GIS-7','GIS-8','GIS-9','GIS-MSE'];
+  const i = gisOrder.indexOf(s);
+  return [1, i < 0 ? 99 : i];
+}
+
+// Per-section MC accuracy + coverage, assembled from what's persisted.
+function dashSections(){
+  const avail = {};
+  for (const c of MCQ_BANK){ const s = c.section || '?'; avail[s] = (avail[s] || 0) + 1; }
+  const bySec = (STATE.mcq && STATE.mcq.bySection) || {};
+  const rows = Object.keys(avail).map(sec => {
+    const st = bySec[sec] || { answered: 0, correct: 0 };
+    const acc = st.answered > 0 ? st.correct / st.answered : 0;
+    let status;
+    if (st.answered === 0) status = 'none';
+    else if (st.answered < READY_MIN_ATTEMPTS) status = 'light';
+    else if (acc >= PASS_LINE) status = 'ready';
+    else status = 'below';
+    return { sec, available: avail[sec], attempts: st.answered, correct: st.correct, acc, status };
+  });
+  rows.sort((a, b) => { const ra = secRank(a.sec), rb = secRank(b.sec); return ra[0] - rb[0] || ra[1] - rb[1]; });
+  return rows;
+}
+
+// Worst-performing clauses (below the pass line), from existing per-clause tracking.
+function dashWeakClauses(limit){
+  const bc = (STATE.mcq && STATE.mcq.byClause) || {};
+  const clauseSection = {};
+  for (const c of MCQ_BANK){ if (c.clauseRef && !(c.clauseRef in clauseSection)) clauseSection[c.clauseRef] = c.section; }
+  const weak = [];
+  for (const cl in bc){
+    const s = bc[cl];
+    if (s.answered > 0 && s.correct / s.answered < PASS_LINE){
+      weak.push({ clause: cl, section: clauseSection[cl] || '', correct: s.correct, answered: s.answered, acc: s.correct / s.answered });
+    }
+  }
+  weak.sort((a, b) => a.acc - b.acc || (b.answered - b.correct) - (a.answered - a.correct));
+  return limit ? weak.slice(0, limit) : weak;
+}
+
+// Home-screen entry card.
+function renderDashEntry(){
+  const cd = examCountdown();
+  const m = STATE.mcq;
+  const daysStr = cd.phase === 'before' ? `${cd.days} day${cd.days===1?'':'s'} to exam window`
+                : cd.phase === 'during' ? 'exam window is open'
+                : 'exam window has passed';
+  const accStr = (m && m.answered > 0) ? ` · ${pctStr(m.correct, m.answered)} MC overall` : '';
+  return `<div class="mode-card" onclick="renderDashboard()" role="button" tabindex="0"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();renderDashboard();}">
+    <div class="mode-card-main">
+      <div class="mode-card-title">Exam Readiness</div>
+      <div class="mode-card-sub">${daysStr}${accStr}</div>
+    </div>
+    <span class="mode-card-arrow">→</span>
+  </div>`;
+}
+
+function renderDashboard(){
+  const cd = examCountdown();
+  const m = STATE.mcq || freshMcqState();
+  const nd = STATE.navdrill || freshNavState();
+
+  // Countdown hero
+  const daysBig = cd.phase === 'before' ? `${cd.days}<small>days to Nov 9–15 window</small>`
+                : cd.phase === 'during' ? `Now<small>Nov 9–15 window is open</small>`
+                : `—<small>Nov 9–15 window has passed</small>`;
+
+  // Overall MC readiness
+  const overallAcc = pctOf(m.correct, m.answered);
+  const overallCls = m.answered === 0 ? '' : (overallAcc >= PASS_LINE ? 'pass' : 'below');
+  const overallHero = m.answered === 0
+    ? `<div class="dash-empty">No exam questions answered yet — run an Exam Quiz session and your MC readiness vs the 95% line will appear here.</div>`
+    : `<div class="perf-head" style="margin:0">
+         <div class="perf-acc ${overallCls}">${Math.round(overallAcc*100)}%<small>MC overall</small></div>
+         <div class="perf-target">${m.correct}/${m.answered} answered · pass line 95%</div>
+       </div>`;
+
+  // Per-section rows
+  const rows = dashSections();
+  const started = rows.filter(r => r.attempts > 0).length;
+  const sectionRows = rows.map(r => {
+    const w = Math.round(r.acc * 100);
+    const fill = r.status === 'ready' ? 'pass' : (r.status === 'below' ? 'below' : (r.status === 'light' ? 'light' : ''));
+    const metric = r.attempts === 0
+      ? `<span class="dash-metric none">not started</span>`
+      : `<span class="dash-metric ${r.status}"><b>${w}%</b><small>${r.correct}/${r.attempts}</small></span>`;
+    return `<div class="dash-row">
+      <span class="sec-name">${escapeHTML(r.sec)}</span>
+      <span class="sec-bar"><span class="sec-fill ${fill}" style="width:${r.attempts===0?0:w}%"></span><span class="target-mark"></span></span>
+      ${metric}
+    </div>`;
+  }).join('');
+
+  // Lookup competence (navdrill)
+  let lookupBlock;
+  if (nd.attempted === 0){
+    lookupBlock = `<div class="dash-empty">No navigation-drill lookups yet — run a drill and your first-tap accuracy will appear here.</div>`;
+  } else {
+    const tiles = [['Overall', nd.firstTapCorrect, nd.attempted]];
+    ['NAAWS','GIS'].forEach(man => { const st = nd.byManual[man]; if (st) tiles.push([man, st.correct, st.attempted]); });
+    lookupBlock = `<div class="dash-lookup">${tiles.map(([lab,c,a]) =>
+      `<div class="lk"><div class="lk-num">${a>0?Math.round(c/a*100)+'%':'—'}</div><div class="lk-lab">${lab}</div></div>`
+    ).join('')}</div>`;
+  }
+
+  // Weak clusters
+  const weak = dashWeakClauses(8);
+  const weakBlock = m.answered === 0
+    ? `<div class="dash-empty">Answer some questions to surface your weak clauses.</div>`
+    : (weak.length === 0
+        ? `<div class="dash-empty">No clauses below 95% yet — nothing flagged.</div>`
+        : weak.map(w => `<div class="weak-item">
+            <div><div class="weak-clause">${escapeHTML(w.clause)}</div><div class="weak-sec">${escapeHTML(w.section||'')}</div></div>
+            <div class="weak-acc">${Math.round(w.acc*100)}% · ${w.correct}/${w.answered}</div>
+          </div>`).join(''));
+
+  app.innerHTML = `
+    <div class="topbar">
+      <button class="icon-btn" onclick="renderHome()" aria-label="Back">${svgIcon('back')}</button>
+      <div class="brand" style="font-size:18px">Exam <span>Readiness</span></div>
+      <div style="width:40px"></div>
+    </div>
+
+    <div class="dash-hero">
+      <div class="dash-days">${daysBig}</div>
+      <div class="dash-hero-right"><strong>MSE sit target</strong>Nov 9–15, 2026<br>open-book · 95% to pass</div>
+    </div>
+
+    <div class="dash-label">MC readiness</div>
+    <div class="perf-card" style="margin-top:0">${overallHero}</div>
+
+    <div class="dash-label">Accuracy by section <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:400">· vs 95% · ${started}/${rows.length} started</span></div>
+    <div class="dash-sublabel">Bar = accuracy; mark at 95%. Right = accuracy · correct/attempts. Grey = not started (coverage gap).</div>
+    <div class="dash-card">${sectionRows}</div>
+
+    <div class="dash-label">Lookup competence <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:400">· first-tap correct</span></div>
+    ${lookupBlock}
+
+    <div class="dash-label">Study next <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:400">· clauses below 95%</span></div>
+    <div class="dash-card">${weakBlock}</div>
+
+    <div style="height:20px"></div>
+  `;
+  window.scrollTo(0,0);
+}
 
 // Load the externalised card deck (cards.json). Cached by the service worker
 // after first load, so it is available offline on subsequent launches.
