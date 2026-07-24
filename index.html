@@ -1096,15 +1096,35 @@ function renderQuizEntry(){
 }
 
 // ---- Setup / configuration screen ----
-let quizConfig = { filterType: 'all', filterValue: null, length: 10 };
+let quizConfig = { filterType: 'all', filterValue: null, sections: [], length: 10 };
 
-function setQuizFilter(type, value){ quizConfig.filterType = type; quizConfig.filterValue = value; renderQuizSetup(); }
+function setQuizFilter(type, value){
+  // 'all' / 'weak' / 'weight' are single-choice modes; entering one clears any section multi-select.
+  quizConfig.filterType = type;
+  quizConfig.filterValue = value;
+  quizConfig.sections = [];
+  renderQuizSetup();
+}
+// Sections are multi-select: tapping a section chip toggles it in/out of quizConfig.sections.
+function toggleQuizSection(sec){
+  const i = quizConfig.sections.indexOf(sec);
+  if (i >= 0) quizConfig.sections.splice(i, 1);
+  else quizConfig.sections.push(sec);
+  if (quizConfig.sections.length){
+    quizConfig.filterType = 'section';   // pool is now driven by the sections array
+    quizConfig.filterValue = null;
+  } else {
+    quizConfig.filterType = 'all';       // nothing selected -> fall back to All
+    quizConfig.filterValue = null;
+  }
+  renderQuizSetup();
+}
 function setQuizLength(l){ quizConfig.length = (l === 'all') ? 'all' : parseInt(l, 10); renderQuizSetup(); }
 
 function renderQuizSetup(){
   const s = mcqSummary();
   const secChips = Object.keys(s.sections).sort().map(sec =>
-    `<button class="seg-btn ${quizConfig.filterType==='section'&&quizConfig.filterValue===sec?'active':''}" onclick="setQuizFilter('section','${sec}')">${sec}<span style="opacity:.55;margin-left:5px">${s.sections[sec]}</span></button>`
+    `<button class="seg-btn ${quizConfig.filterType==='section'&&quizConfig.sections.includes(sec)?'active':''}" onclick="toggleQuizSection('${sec}')">${sec}<span style="opacity:.55;margin-left:5px">${s.sections[sec]}</span></button>`
   ).join('');
   const wChips = ['high','med','low'].filter(w => s.weights[w]).map(w =>
     `<button class="seg-btn ${quizConfig.filterType==='weight'&&quizConfig.filterValue===w?'active':''}" onclick="setQuizFilter('weight','${w}')">${w}<span style="opacity:.55;margin-left:5px">${s.weights[w]}</span></button>`
@@ -1131,8 +1151,8 @@ function renderQuizSetup(){
       </div>
     </div>
     <div class="setup-section">
-      <div class="setup-label">By section</div>
-      <div class="seg">${secChips || '<span class="setup-note" style="margin:0">none</span>'}</div>
+      <div class="setup-label">By section <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:400">· tap to select one or more</span></div>
+      <div class="seg" style="flex-wrap:wrap">${secChips || '<span class="setup-note" style="margin:0">none</span>'}</div>
     </div>
     <div class="setup-section">
       <div class="setup-label">By exam weight</div>
@@ -1187,7 +1207,7 @@ function shuffleInPlace(arr){
 }
 function buildQuizPool(cfg){
   let pool = MCQ_BANK.slice();
-  if (cfg.filterType === 'section') pool = pool.filter(c => c.section === cfg.filterValue);
+  if (cfg.filterType === 'section') pool = pool.filter(c => (cfg.sections || []).includes(c.section));
   else if (cfg.filterType === 'weight') pool = pool.filter(c => c.examWeight === cfg.filterValue);
   else if (cfg.filterType === 'weak'){ const w = weakClauseSet(); pool = pool.filter(c => w.has(c.clauseRef)); }
   return pool;
